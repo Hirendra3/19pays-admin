@@ -472,7 +472,10 @@ function AadhaarCanvas({ adharpath, watermark }: { adharpath: string; watermark:
     async function render() {
       try {
         // Fetch the resource to detect content-type
-        const res = await fetch(src)
+        const token = typeof window !== "undefined" ? localStorage.getItem("admin_token") : null
+        const res = await fetch(src, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        })
         if (!res.ok) throw new Error("Failed to fetch Aadhaar file")
         const contentType = res.headers.get("content-type") || ""
         const arrayBuf = await res.arrayBuffer()
