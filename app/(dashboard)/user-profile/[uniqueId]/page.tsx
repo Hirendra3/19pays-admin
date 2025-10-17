@@ -28,6 +28,21 @@ export default function UserProfilePage() {
   
   const { profile, isLoading, error, refresh } = useUserProfile(uniqueId)
 
+  // If not logged in, show a friendly prompt instead of raw errors
+  if (!token) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6 text-center">
+            <h2 className="text-lg font-semibold mb-2">Login Required</h2>
+            <p className="text-sm text-muted-foreground mb-4">Please log in as an admin to view this profile.</p>
+            <Button onClick={() => router.replace("/login")}>Go to Login</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -40,14 +55,22 @@ export default function UserProfilePage() {
   }
 
   if (error) {
+    const raw = String(error?.message || "")
+    const friendly =
+      /authorization token required|bearer token|unauthorized|401/i.test(raw)
+        ? "Authorization required. Please log in again."
+        : raw || "Failed to load profile"
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-full max-w-md">
           <CardContent className="p-6 text-center">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
             <h2 className="text-lg font-semibold mb-2">Error Loading Profile</h2>
-            <p className="text-sm text-muted-foreground mb-4">{error.message || String(error)}</p>
-            <Button onClick={() => router.back()}>Go Back</Button>
+            <p className="text-sm text-muted-foreground mb-4">{friendly}</p>
+            <div className="flex gap-2 justify-center">
+              <Button variant="outline" onClick={() => router.back()}>Go Back</Button>
+              <Button onClick={() => router.replace("/login")}>Go to Login</Button>
+            </div>
           </CardContent>
         </Card>
       </div>
