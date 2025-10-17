@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye } from "lucide-react"
 import { useUserProfile } from "@/hooks/use-user-profile"
 import { useAuthToken } from "@/hooks/use-auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { toast } from "@/components/ui/use-toast"
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -27,6 +29,53 @@ export default function UserProfilePage() {
   const isAdmin = !!token
   
   const { profile, isLoading, error, refresh } = useUserProfile(uniqueId)
+  const [adjustedAmount, setAdjustedAmount] = useState<string>("")
+  const [debtUpdating, setDebtUpdating] = useState<boolean>(false)
+
+  async function handleDebtUpdate(approved: boolean) {
+    if (!token || !profile?.Debtresult?._id) {
+      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
+      return
+    }
+    setDebtUpdating(true)
+    try {
+      const amt = Number(adjustedAmount)
+      const body = {
+        unique_user_id: uniqueId,
+        debtid: profile.Debtresult._id,
+        approved,
+        adjustedAmount: Number.isFinite(amt) && amt > 0 ? Math.floor(amt) : 0,
+      }
+      const res = await fetch("/api/updateuserdebt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      })
+      let data: any = {}
+      let text = ""
+      try {
+        text = await res.text()
+        data = text ? JSON.parse(text) : {}
+      } catch {
+        // non-JSON body
+      }
+      if (!res.ok) {
+        const msg = data?.error || data?.message || text || `Failed to update debt (${res.status})`
+        throw new Error(msg)
+      }
+      const successMsg = data?.message || (approved ? "Debt approved" : "Debt rejected")
+      toast({ title: successMsg })
+      setAdjustedAmount("")
+      refresh()
+    } catch (e: any) {
+      toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
+    } finally {
+      setDebtUpdating(false)
+    }
+  }
 
   // If not logged in, show a friendly prompt instead of raw errors
   if (!token) {
@@ -326,6 +375,24 @@ export default function UserProfilePage() {
                   label="Created" 
                   value={profile.Debtresult.createdAt ? new Date(profile.Debtresult.createdAt).toLocaleDateString() : "-"} 
                 />
+                {isAdmin && (
+                  <div className="mt-2 grid gap-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Adjusted amount (optional)"
+                        value={adjustedAmount}
+                        onChange={(e) => setAdjustedAmount(e.target.value)}
+                        className="max-w-[240px]"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button disabled={debtUpdating} onClick={() => handleDebtUpdate(true)}>Approve</Button>
+                      <Button variant="destructive" disabled={debtUpdating} onClick={() => handleDebtUpdate(false)}>Reject</Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -369,7 +436,10 @@ export default function UserProfilePage() {
 
 async function downloadAadhaar(adharpath: string, watermark: string) {
   try {
-    const response = await fetch(`/api/aadhaar/${encodeURI(adharpath)}`)
+    const token = typeof window !== "undefined" ? localStorage.getItem("admin_token") : null
+    const response = await fetch(`/api/aadhaar/${encodeURI(adharpath)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
     if (!response.ok) throw new Error('Failed to fetch Aadhaar document')
     
     const blob = await response.blob()
