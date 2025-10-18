@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye, ExternalLink } from "lucide-react"
+import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye, ExternalLink, CheckCircle, XCircle, Clock } from "lucide-react"
 import { useUserProfile } from "@/hooks/use-user-profile"
 import { useAuthToken, authenticatedFetch } from "@/hooks/use-auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { toast } from "@/components/ui/use-toast"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -29,23 +30,22 @@ export default function UserProfilePage() {
   const isAdmin = !!token
   
   const { profile, isLoading, error, refresh } = useUserProfile(uniqueId)
-  const [adjustedAmount, setAdjustedAmount] = useState<string>("")
-  const [debtUpdating, setDebtUpdating] = useState<boolean>(false)
-  const [updateAmount, setUpdateAmount] = useState<string>("")
-  const [updatingAmount, setUpdatingAmount] = useState<boolean>(false)
+  const [debtUpdating, setDebtUpdating] = useState<{ [key: string]: boolean }>({})
+  const [updateAmounts, setUpdateAmounts] = useState<{ [key: string]: string }>({})
+  const [updatingAmounts, setUpdatingAmounts] = useState<{ [key: string]: boolean }>({})
 
-  async function handleDebtUpdate(approved: boolean) {
-    if (!token || !profile?.Debtresult?._id) {
+  async function handleDebtUpdate(debtId: string, approved: boolean) {
+    if (!token) {
       toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
       return
     }
-    setDebtUpdating(true)
+    setDebtUpdating(prev => ({ ...prev, [debtId]: true }))
     try {
       const body = {
         unique_user_id: uniqueId,
-        debtid: profile.Debtresult._id,
+        debtid: debtId,
         approved,
-        adjustedAmount: 0, // Always pass 0 when approving
+        adjustedAmount: approved ? 0 : undefined,
       }
       const res = await authenticatedFetch("/api/updateuserdebt", {
         method: "POST",
@@ -65,23 +65,22 @@ export default function UserProfilePage() {
       }
       const successMsg = data?.message || (approved ? "Debt approved" : "Debt rejected")
       toast({ title: successMsg })
-      setAdjustedAmount("")
       refresh()
     } catch (e: any) {
       toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
     } finally {
-      setDebtUpdating(false)
+      setDebtUpdating(prev => ({ ...prev, [debtId]: false }))
     }
   }
 
-  async function handleUpdateAdjustedAmount() {
-    if (!token || !profile?.Debtresult?._id) {
+  async function handleUpdateAdjustedAmount(debtId: string) {
+    if (!token) {
       toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
       return
     }
-    setUpdatingAmount(true)
+    setUpdatingAmounts(prev => ({ ...prev, [debtId]: true }))
     try {
-      const amt = Number(updateAmount)
+      const amt = Number(updateAmounts[debtId])
       if (!Number.isFinite(amt) || amt < 0) {
         toast({ title: "Invalid amount", description: "Please enter a valid positive number", variant: "destructive" })
         return
@@ -89,7 +88,7 @@ export default function UserProfilePage() {
       
       const body = {
         unique_user_id: uniqueId,
-        debtid: profile.Debtresult._id,
+        debtid: debtId,
         approved: true, // Keep as approved
         adjustedAmount: Math.floor(amt),
       }
@@ -115,12 +114,12 @@ export default function UserProfilePage() {
       
       const successMsg = data?.message || "Debt amount updated successfully"
       toast({ title: successMsg })
-      setUpdateAmount("")
+      setUpdateAmounts(prev => ({ ...prev, [debtId]: "" }))
       refresh()
     } catch (e: any) {
       toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
     } finally {
-      setUpdatingAmount(false)
+      setUpdatingAmounts(prev => ({ ...prev, [debtId]: false }))
     }
   }
 
@@ -415,94 +414,123 @@ export default function UserProfilePage() {
             <Card>
               <CardHeader className="flex flex-row items-center gap-2">
                 <AlertCircle className="h-5 w-5 text-orange-600" />
-                <CardTitle className="text-orange-600">Debt Information</CardTitle>
+                <CardTitle className="text-orange-600">Debt Requests</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-3">
-                <InfoRow 
-                  label="Status" 
-                  value={
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      profile.Debtresult.status
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {profile.Debtresult.status ? 'Active' : 'Inactive'}
-                    </span>
-                  } 
-                />
-                <InfoRow 
-                  label="Approved" 
-                  value={
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      profile.Debtresult.approved
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {profile.Debtresult.approved ? 'Yes' : 'No'}
-                    </span>
-                  } 
-                />
-                <InfoRow label="Adjusted Amount" value={`₹${profile.Debtresult.adjustedAmount || "0"}`} />
-                <InfoRow 
-                  label="Paid" 
-                  value={
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      profile.Debtresult.paid
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {profile.Debtresult.paid ? 'Yes' : 'No'}
-                    </span>
-                  } 
-                />
-                <InfoRow label="Debt Type" value={profile.Debtresult.debtType || "-"} />
-                <InfoRow label="Amount" value={`₹${profile.Debtresult.amount || "0"}`} />
-                <InfoRow label="Description" value={profile.Debtresult.description || "-"} />
-                <InfoRow label="Year" value={profile.Debtresult.year || "-"} />
-                <InfoRow label="Transaction Ref" value={profile.Debtresult.transactionRef || "-"} />
-                <InfoRow label="Proof" value={profile.Debtresult.proof || "-"} />
-                <InfoRow 
-                  label="Created" 
-                  value={profile.Debtresult.createdAt ? new Date(profile.Debtresult.createdAt).toLocaleDateString() : "-"} 
-                />
-                {isAdmin && (
-                  <div className="mt-4 p-4 border rounded-lg bg-muted/20">
-                    {!profile.Debtresult.approved ? (
-                      // Show Approve/Reject buttons for unapproved debts
-                      <div className="grid gap-2">
-                        <div className="flex flex-wrap gap-2">
-                          <Button disabled={debtUpdating} onClick={() => handleDebtUpdate(true)}>Approve</Button>
-                          <Button variant="destructive" disabled={debtUpdating} onClick={() => handleDebtUpdate(false)}>Reject</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      // Show update section for approved debts
-                      <div className="grid gap-3">
-                        <h4 className="text-sm font-medium text-muted-foreground">Update Adjusted Amount</h4>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="number"
-                            min="0"
-                            placeholder="Enter adjusted amount"
-                            value={updateAmount}
-                            onChange={(e) => setUpdateAmount(e.target.value)}
-                            className="max-w-[240px]"
-                          />
-                          <Button 
-                            disabled={updatingAmount} 
-                            onClick={handleUpdateAdjustedAmount}
-                            size="sm"
-                          >
-                            {updatingAmount ? "Updating..." : "Update"}
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Current adjusted amount: ₹{profile.Debtresult.adjustedAmount || "0"}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Adjusted Amount</TableHead>
+                        <TableHead>Paid</TableHead>
+                        <TableHead>Request Date</TableHead>
+                        <TableHead>Description</TableHead>
+                        {isAdmin && <TableHead>Actions</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {/* Handle both array and single object cases */}
+                      {(Array.isArray(profile.Debtresult) ? profile.Debtresult : [profile.Debtresult]).map((debt, index) => (
+                        <TableRow key={debt._id || index}>
+                          <TableCell className="font-medium">
+                            ₹{debt.amount || "0"}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${
+                              debt.approved === true 
+                                ? 'bg-green-100 text-green-800' 
+                                : debt.approved === false
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {debt.approved === true ? (
+                                <>
+                                  <CheckCircle className="h-3 w-3" />
+                                  Approved
+                                </>
+                              ) : debt.approved === false ? (
+                                <>
+                                  <XCircle className="h-3 w-3" />
+                                  Rejected
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="h-3 w-3" />
+                                  Pending
+                                </>
+                              )}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            ₹{debt.adjustedAmount || "0"}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              debt.paid
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {debt.paid ? 'Yes' : 'No'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {debt.createdAt ? new Date(debt.createdAt).toLocaleDateString() : "-"}
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate">
+                            {debt.description || "-"}
+                          </TableCell>
+                          {isAdmin && (
+                            <TableCell>
+                              {debt.approved === true ? (
+                                // Show update section for approved debts
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Amount"
+                                    value={updateAmounts[debt._id] || ""}
+                                    onChange={(e) => setUpdateAmounts(prev => ({ ...prev, [debt._id]: e.target.value }))}
+                                    className="w-24"
+                                  />
+                                  <Button 
+                                    disabled={updatingAmounts[debt._id] || false} 
+                                    onClick={() => handleUpdateAdjustedAmount(debt._id)}
+                                    size="sm"
+                                  >
+                                    {updatingAmounts[debt._id] ? "..." : "Update"}
+                                  </Button>
+                                </div>
+                              ) : debt.approved === false ? (
+                                <span className="text-xs text-muted-foreground">Rejected</span>
+                              ) : (
+                                // Show Approve/Reject buttons for pending debts
+                                <div className="flex gap-1">
+                                  <Button 
+                                    size="sm" 
+                                    disabled={debtUpdating[debt._id] || false} 
+                                    onClick={() => handleDebtUpdate(debt._id, true)}
+                                  >
+                                    Approve
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="destructive" 
+                                    disabled={debtUpdating[debt._id] || false} 
+                                    onClick={() => handleDebtUpdate(debt._id, false)}
+                                  >
+                                    Reject
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           )}
