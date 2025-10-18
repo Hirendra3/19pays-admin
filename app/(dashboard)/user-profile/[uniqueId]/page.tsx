@@ -211,6 +211,7 @@ export default function UserProfilePage() {
                 <CardTitle className="text-blue-600">Location</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
+                <InfoRow label="IP Address" value={profile.Userresult.ipAddress || "-"} />
                 <InfoRow label="City" value={profile.Userresult.location.city || "-"} />
                 <InfoRow label="Region" value={profile.Userresult.location.region || "-"} />
                 <InfoRow label="Country" value={profile.Userresult.location.country || "-"} />
@@ -400,7 +401,6 @@ export default function UserProfilePage() {
                 <CardTitle>Account Details</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
-                <InfoRow label="IP Address" value={profile.Userresult.ipAddress || "-"} />
                 <InfoRow 
                   label="Created" 
                   value={profile.Userresult.createdAt ? new Date(profile.Userresult.createdAt).toLocaleDateString() : "-"} 
