@@ -33,12 +33,37 @@ export default function UserProfilePage() {
   const [debtUpdating, setDebtUpdating] = useState<{ [key: string]: boolean }>({})
   const [updateAmounts, setUpdateAmounts] = useState<{ [key: string]: string }>({})
   const [updatingAmounts, setUpdatingAmounts] = useState<{ [key: string]: boolean }>({})
+  const [markingPaid, setMarkingPaid] = useState<{ [key: string]: boolean }>({})
 
-  async function handleDebtUpdate(debtId: string, approved: boolean) {
+  async function handleDebtUpdate(debtId: string, approved: boolean, currentStatus: string) {
     if (!token) {
       toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
       return
     }
+
+    // Handle status change confirmations and alerts
+    if (approved && currentStatus === 'approved') {
+      alert("This request is already approved. You can reject it if you want to change the status.")
+      return
+    }
+    
+    if (!approved && currentStatus === 'rejected') {
+      alert("This request is already rejected. You can approve it if you want to change the status.")
+      return
+    }
+
+    if (approved && currentStatus === 'rejected') {
+      if (!confirm("Are you sure you want to approve this previously rejected request?")) {
+        return
+      }
+    }
+
+    if (!approved && currentStatus === 'approved') {
+      if (!confirm("Are you sure you want to reject this approved request?")) {
+        return
+      }
+    }
+
     setDebtUpdating(prev => ({ ...prev, [debtId]: true }))
     try {
       const body = {
@@ -120,6 +145,55 @@ export default function UserProfilePage() {
       toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
     } finally {
       setUpdatingAmounts(prev => ({ ...prev, [debtId]: false }))
+    }
+  }
+
+  async function handleMarkAsPaid(debtId: string) {
+    if (!token) {
+      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
+      return
+    }
+    
+    if (!confirm("Are you sure you want to mark this debt as paid? This action cannot be undone.")) {
+      return
+    }
+    
+    setMarkingPaid(prev => ({ ...prev, [debtId]: true }))
+    try {
+      const body = {
+        unique_user_id: uniqueId,
+        debtid: debtId,
+        approved: true, // Keep as approved
+        adjustedAmount: 0, // Keep current amount
+        paid: true, // Mark as paid
+      }
+      
+      const res = await authenticatedFetch("/api/updateuserdebt", {
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+      
+      let data: any = {}
+      let text = ""
+      try {
+        text = await res.text()
+        data = text ? JSON.parse(text) : {}
+      } catch {
+        // non-JSON body
+      }
+      
+      if (!res.ok) {
+        const msg = data?.error || data?.message || text || `Failed to mark debt as paid (${res.status})`
+        throw new Error(msg)
+      }
+      
+      const successMsg = data?.message || "Debt marked as paid successfully"
+      toast({ title: successMsg })
+      refresh()
+    } catch (e: any) {
+      toast({ title: "Mark as paid failed", description: e?.message || String(e), variant: "destructive" })
+    } finally {
+      setMarkingPaid(prev => ({ ...prev, [debtId]: false }))
     }
   }
 
@@ -422,8 +496,8 @@ export default function UserProfilePage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Amount</TableHead>
-                        <TableHead>Status</TableHead>
                         <TableHead>Adjusted Amount</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Paid</TableHead>
                         <TableHead>Request Date</TableHead>
                         <TableHead>Description</TableHead>
@@ -438,19 +512,22 @@ export default function UserProfilePage() {
                             ₹{debt.amount || "0"}
                           </TableCell>
                           <TableCell>
+                            ₹{debt.adjustedAmount || "0"}
+                          </TableCell>
+                          <TableCell>
                             <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${
-                              debt.approved === true 
+                              debt.status === 'approved' 
                                 ? 'bg-green-100 text-green-800' 
-                                : debt.approved === false
+                                : debt.status === 'rejected'
                                 ? 'bg-red-100 text-red-800'
                                 : 'bg-yellow-100 text-yellow-800'
                             }`}>
-                              {debt.approved === true ? (
+                              {debt.status === 'approved' ? (
                                 <>
                                   <CheckCircle className="h-3 w-3" />
                                   Approved
                                 </>
-                              ) : debt.approved === false ? (
+                              ) : debt.status === 'rejected' ? (
                                 <>
                                   <XCircle className="h-3 w-3" />
                                   Rejected
@@ -462,9 +539,6 @@ export default function UserProfilePage() {
                                 </>
                               )}
                             </span>
-                          </TableCell>
-                          <TableCell>
-                            ₹{debt.adjustedAmount || "0"}
                           </TableCell>
                           <TableCell>
                             <span className={`text-xs px-2 py-1 rounded ${
@@ -483,46 +557,62 @@ export default function UserProfilePage() {
                           </TableCell>
                           {isAdmin && (
                             <TableCell>
-                              {debt.approved === true ? (
-                                // Show update section for approved debts
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    placeholder="Amount"
-                                    value={updateAmounts[debt._id] || ""}
-                                    onChange={(e) => setUpdateAmounts(prev => ({ ...prev, [debt._id]: e.target.value }))}
-                                    className="w-24"
-                                  />
-                                  <Button 
-                                    disabled={updatingAmounts[debt._id] || false} 
-                                    onClick={() => handleUpdateAdjustedAmount(debt._id)}
-                                    size="sm"
-                                  >
-                                    {updatingAmounts[debt._id] ? "..." : "Update"}
-                                  </Button>
+                              {!debt.paid ? (
+                                <div className="flex flex-col gap-2">
+                                  {/* Show Approve/Reject buttons only if not paid */}
+                                  <div className="flex gap-1">
+                                    <Button 
+                                      size="sm" 
+                                      disabled={debtUpdating[debt._id] || false} 
+                                      onClick={() => handleDebtUpdate(debt._id, true, debt.status || 'pending')}
+                                    >
+                                      Approve
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="destructive" 
+                                      disabled={debtUpdating[debt._id] || false} 
+                                      onClick={() => handleDebtUpdate(debt._id, false, debt.status || 'pending')}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </div>
+                                  
+                                  {/* Show update section for approved debts */}
+                                  {debt.status === 'approved' && (
+                                    <div className="flex flex-col gap-2">
+                                      <div className="flex items-center gap-2">
+                                        <Input
+                                          type="number"
+                                          min="0"
+                                          placeholder="Amount"
+                                          value={updateAmounts[debt._id] || ""}
+                                          onChange={(e) => setUpdateAmounts(prev => ({ ...prev, [debt._id]: e.target.value }))}
+                                          className="w-24"
+                                        />
+                                        <Button 
+                                          disabled={updatingAmounts[debt._id] || false} 
+                                          onClick={() => handleUpdateAdjustedAmount(debt._id)}
+                                          size="sm"
+                                        >
+                                          {updatingAmounts[debt._id] ? "..." : "Update"}
+                                        </Button>
+                                      </div>
+                                      
+                                      {/* Show Mark as Paid button for approved debts */}
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline"
+                                        disabled={markingPaid[debt._id] || false} 
+                                        onClick={() => handleMarkAsPaid(debt._id)}
+                                      >
+                                        {markingPaid[debt._id] ? "..." : "Mark as Paid"}
+                                      </Button>
+                                    </div>
+                                  )}
                                 </div>
-                              ) : debt.approved === false ? (
-                                <span className="text-xs text-muted-foreground">Rejected</span>
                               ) : (
-                                // Show Approve/Reject buttons for pending debts
-                                <div className="flex gap-1">
-                                  <Button 
-                                    size="sm" 
-                                    disabled={debtUpdating[debt._id] || false} 
-                                    onClick={() => handleDebtUpdate(debt._id, true)}
-                                  >
-                                    Approve
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="destructive" 
-                                    disabled={debtUpdating[debt._id] || false} 
-                                    onClick={() => handleDebtUpdate(debt._id, false)}
-                                  >
-                                    Reject
-                                  </Button>
-                                </div>
+                                <span className="text-xs text-muted-foreground">Paid</span>
                               )}
                             </TableCell>
                           )}
