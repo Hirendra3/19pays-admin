@@ -90,6 +90,9 @@ export interface DebtResult {
   proof: string
   transactionRef: string
   status: boolean
+  approved: boolean
+  adjustedAmount: number
+  paid: boolean
   createdAt: string
   updatedAt: string
   __v: number

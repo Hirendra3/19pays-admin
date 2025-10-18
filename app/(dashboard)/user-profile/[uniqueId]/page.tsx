@@ -31,6 +31,8 @@ export default function UserProfilePage() {
   const { profile, isLoading, error, refresh } = useUserProfile(uniqueId)
   const [adjustedAmount, setAdjustedAmount] = useState<string>("")
   const [debtUpdating, setDebtUpdating] = useState<boolean>(false)
+  const [updateAmount, setUpdateAmount] = useState<string>("")
+  const [updatingAmount, setUpdatingAmount] = useState<boolean>(false)
 
   async function handleDebtUpdate(approved: boolean) {
     if (!token || !profile?.Debtresult?._id) {
@@ -39,12 +41,11 @@ export default function UserProfilePage() {
     }
     setDebtUpdating(true)
     try {
-      const amt = Number(adjustedAmount)
       const body = {
         unique_user_id: uniqueId,
         debtid: profile.Debtresult._id,
         approved,
-        adjustedAmount: Number.isFinite(amt) && amt > 0 ? Math.floor(amt) : 0,
+        adjustedAmount: 0, // Always pass 0 when approving
       }
       const res = await authenticatedFetch("/api/updateuserdebt", {
         method: "POST",
@@ -72,6 +73,57 @@ export default function UserProfilePage() {
       setDebtUpdating(false)
     }
   }
+
+  async function handleUpdateAdjustedAmount() {
+    if (!token || !profile?.Debtresult?._id) {
+      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
+      return
+    }
+    setUpdatingAmount(true)
+    try {
+      const amt = Number(updateAmount)
+      if (!Number.isFinite(amt) || amt < 0) {
+        toast({ title: "Invalid amount", description: "Please enter a valid positive number", variant: "destructive" })
+        return
+      }
+      
+      const body = {
+        unique_user_id: uniqueId,
+        debtid: profile.Debtresult._id,
+        approved: true, // Keep as approved
+        adjustedAmount: Math.floor(amt),
+      }
+      
+      const res = await authenticatedFetch("/api/updateuserdebt", {
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+      
+      let data: any = {}
+      let text = ""
+      try {
+        text = await res.text()
+        data = text ? JSON.parse(text) : {}
+      } catch {
+        // non-JSON body
+      }
+      
+      if (!res.ok) {
+        const msg = data?.error || data?.message || text || `Failed to update debt amount (${res.status})`
+        throw new Error(msg)
+      }
+      
+      const successMsg = data?.message || "Debt amount updated successfully"
+      toast({ title: successMsg })
+      setUpdateAmount("")
+      refresh()
+    } catch (e: any) {
+      toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
+    } finally {
+      setUpdatingAmount(false)
+    }
+  }
+
 
   // If not logged in, show a friendly prompt instead of raw errors
   if (!token) {
@@ -208,8 +260,8 @@ export default function UserProfilePage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div className="flex flex-row items-center gap-2">
-                  <MapPin className="h-5 w-5 text-blue-600" />
-                  <CardTitle className="text-blue-600">Location</CardTitle>
+                <MapPin className="h-5 w-5 text-blue-600" />
+                <CardTitle className="text-blue-600">Location</CardTitle>
                 </div>
                 {profile.Userresult.location.latitude && profile.Userresult.location.longitude && (
                   <Button
@@ -378,6 +430,31 @@ export default function UserProfilePage() {
                     </span>
                   } 
                 />
+                <InfoRow 
+                  label="Approved" 
+                  value={
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      profile.Debtresult.approved
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {profile.Debtresult.approved ? 'Yes' : 'No'}
+                    </span>
+                  } 
+                />
+                <InfoRow label="Adjusted Amount" value={`₹${profile.Debtresult.adjustedAmount || "0"}`} />
+                <InfoRow 
+                  label="Paid" 
+                  value={
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      profile.Debtresult.paid
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {profile.Debtresult.paid ? 'Yes' : 'No'}
+                    </span>
+                  } 
+                />
                 <InfoRow label="Debt Type" value={profile.Debtresult.debtType || "-"} />
                 <InfoRow label="Amount" value={`₹${profile.Debtresult.amount || "0"}`} />
                 <InfoRow label="Description" value={profile.Debtresult.description || "-"} />
@@ -389,21 +466,41 @@ export default function UserProfilePage() {
                   value={profile.Debtresult.createdAt ? new Date(profile.Debtresult.createdAt).toLocaleDateString() : "-"} 
                 />
                 {isAdmin && (
-                  <div className="mt-2 grid gap-2">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        placeholder="Adjusted amount (optional)"
-                        value={adjustedAmount}
-                        onChange={(e) => setAdjustedAmount(e.target.value)}
-                        className="max-w-[240px]"
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button disabled={debtUpdating} onClick={() => handleDebtUpdate(true)}>Approve</Button>
-                      <Button variant="destructive" disabled={debtUpdating} onClick={() => handleDebtUpdate(false)}>Reject</Button>
-                    </div>
+                  <div className="mt-4 p-4 border rounded-lg bg-muted/20">
+                    {!profile.Debtresult.approved ? (
+                      // Show Approve/Reject buttons for unapproved debts
+                      <div className="grid gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          <Button disabled={debtUpdating} onClick={() => handleDebtUpdate(true)}>Approve</Button>
+                          <Button variant="destructive" disabled={debtUpdating} onClick={() => handleDebtUpdate(false)}>Reject</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      // Show update section for approved debts
+                      <div className="grid gap-3">
+                        <h4 className="text-sm font-medium text-muted-foreground">Update Adjusted Amount</h4>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="Enter adjusted amount"
+                            value={updateAmount}
+                            onChange={(e) => setUpdateAmount(e.target.value)}
+                            className="max-w-[240px]"
+                          />
+                          <Button 
+                            disabled={updatingAmount} 
+                            onClick={handleUpdateAdjustedAmount}
+                            size="sm"
+                          >
+                            {updatingAmount ? "Updating..." : "Update"}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Current adjusted amount: ₹{profile.Debtresult.adjustedAmount || "0"}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -604,4 +701,9 @@ function AadhaarViewer({ adharpath, watermark }: { adharpath: string; watermark:
     </div>
   )
 }
+
+
+
+
+
 
