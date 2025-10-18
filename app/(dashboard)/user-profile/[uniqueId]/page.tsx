@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye } from "lucide-react"
+import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye, ExternalLink } from "lucide-react"
 import { useUserProfile } from "@/hooks/use-user-profile"
 import { useAuthToken, authenticatedFetch } from "@/hooks/use-auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -206,9 +206,25 @@ export default function UserProfilePage() {
           {/* Location Information */}
           {profile.Userresult?.location && (
             <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <MapPin className="h-5 w-5 text-blue-600" />
-                <CardTitle className="text-blue-600">Location</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div className="flex flex-row items-center gap-2">
+                  <MapPin className="h-5 w-5 text-blue-600" />
+                  <CardTitle className="text-blue-600">Location</CardTitle>
+                </div>
+                {profile.Userresult.location.latitude && profile.Userresult.location.longitude && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const url = `https://www.google.com/maps?q=${profile.Userresult.location.latitude},${profile.Userresult.location.longitude}`
+                      window.open(url, '_blank')
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    View Location
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="grid gap-3">
                 <InfoRow label="IP Address" value={profile.Userresult.ipAddress || "-"} />
