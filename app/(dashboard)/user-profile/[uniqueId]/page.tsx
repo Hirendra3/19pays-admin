@@ -1,17 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye, ExternalLink, CheckCircle, XCircle, Clock } from "lucide-react"
+import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, ExternalLink, Download, Eye } from "lucide-react"
 import { useUserProfile } from "@/hooks/use-user-profile"
 import { useAuthToken, authenticatedFetch } from "@/hooks/use-auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { toast } from "@/components/ui/use-toast"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import DebtRequests from "./debt-requests"
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -22,6 +21,165 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+function AadhaarViewer({ adharpath, watermark }: { adharpath: string; watermark: string }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let aborted = false
+    
+    async function loadAadhaar() {
+      try {
+        setLoading(true)
+        setError(null)
+        
+        console.log('Loading Aadhaar:', adharpath)
+        const response = await authenticatedFetch(`/api/aadhaar/${encodeURI(adharpath)}`)
+        console.log('Aadhaar response:', response.status, response.headers.get('content-type'))
+        
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('Aadhaar fetch error:', errorText)
+          throw new Error(`Failed to fetch Aadhaar file: ${response.status}`)
+        }
+        
+        const contentType = response.headers.get("content-type") || ""
+        const blob = await response.blob()
+        console.log('Aadhaar blob size:', blob.size, 'type:', contentType)
+        
+        if (aborted) return
+        
+        // Create blob URL for both PDFs and images
+        const blobUrl = URL.createObjectURL(blob)
+        console.log('Created blob URL:', blobUrl)
+        setImageUrl(blobUrl)
+      } catch (e: any) {
+        console.error('Aadhaar loading error:', e)
+        if (!aborted) {
+          setError(e.message || "Failed to load Aadhaar document")
+        }
+      } finally {
+        if (!aborted) {
+          setLoading(false)
+        }
+      }
+    }
+    
+    loadAadhaar()
+    
+    return () => {
+      aborted = true
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl)
+      }
+    }
+  }, [adharpath])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    
+    const block = (e: Event) => e.preventDefault()
+    el.addEventListener("contextmenu", block)
+    el.addEventListener("dragstart", block)
+    
+    return () => {
+      el.removeEventListener("contextmenu", block)
+      el.removeEventListener("dragstart", block)
+    }
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="grid gap-2 select-none">
+        <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
+        <div className="rounded-md border p-8 bg-muted/20 flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="grid gap-2 select-none">
+        <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
+        <div className="rounded-md border p-4 bg-muted/20">
+          <p className="text-sm text-destructive">Error: {error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={containerRef} className="grid gap-2 select-none">
+      <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
+      <div className="rounded-md border p-2 bg-muted/20">
+        {imageUrl && (
+          <div className="space-y-2">
+            {/* Try to display as image first */}
+            <img
+              src={imageUrl}
+              alt="Aadhaar Document"
+              className="w-full h-auto rounded-md object-contain"
+              style={{ 
+                filter: 'blur(0.5px)',
+                maxHeight: '800px',
+                minHeight: '400px'
+              }}
+              onError={(e) => {
+                // If image fails to load, try as PDF in iframe
+                const target = e.target as HTMLImageElement
+                const parent = target.parentElement
+                if (parent) {
+                  parent.innerHTML = `
+                    <iframe
+                      src="${imageUrl}"
+                      className="w-full rounded-md"
+                      style="height: 600px; min-height: 400px;"
+                      title="Aadhaar Document"
+                    ></iframe>
+                  `
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Document ID: {watermark} | Viewing only. Download/print is disabled.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+async function downloadAadhaar(adharpath: string, watermark: string) {
+  try {
+    const response = await authenticatedFetch(`/api/aadhaar/${encodeURI(adharpath)}`)
+    if (!response.ok) throw new Error('Failed to fetch Aadhaar document')
+    
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    
+    // Determine file extension based on content type
+    const contentType = response.headers.get('content-type') || ''
+    const extension = contentType.includes('pdf') ? 'pdf' : 'jpg'
+    
+    link.download = `aadhaar_${watermark}_${Date.now()}.${extension}`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Error downloading Aadhaar:', error)
+    alert('Failed to download Aadhaar document')
+  }
+}
+
 export default function UserProfilePage() {
   const params = useParams()
   const router = useRouter()
@@ -30,173 +188,6 @@ export default function UserProfilePage() {
   const isAdmin = !!token
   
   const { profile, isLoading, error, refresh } = useUserProfile(uniqueId)
-  const [debtUpdating, setDebtUpdating] = useState<{ [key: string]: boolean }>({})
-  const [updateAmounts, setUpdateAmounts] = useState<{ [key: string]: string }>({})
-  const [updatingAmounts, setUpdatingAmounts] = useState<{ [key: string]: boolean }>({})
-  const [markingPaid, setMarkingPaid] = useState<{ [key: string]: boolean }>({})
-
-  async function handleDebtUpdate(debtId: string, approved: boolean, currentStatus: string) {
-    if (!token) {
-      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
-      return
-    }
-
-    // Handle status change confirmations and alerts
-    if (approved && currentStatus === 'approved') {
-      alert("This request is already approved. You can reject it if you want to change the status.")
-      return
-    }
-    
-    if (!approved && currentStatus === 'rejected') {
-      alert("This request is already rejected. You can approve it if you want to change the status.")
-      return
-    }
-
-    if (approved && currentStatus === 'rejected') {
-      if (!confirm("Are you sure you want to approve this previously rejected request?")) {
-        return
-      }
-    }
-
-    if (!approved && currentStatus === 'approved') {
-      if (!confirm("Are you sure you want to reject this approved request?")) {
-        return
-      }
-    }
-
-    setDebtUpdating(prev => ({ ...prev, [debtId]: true }))
-    try {
-      const body = {
-        unique_user_id: uniqueId,
-        debtid: debtId,
-        approved,
-        adjustedAmount: approved ? 0 : undefined,
-      }
-      const res = await authenticatedFetch("/api/updateuserdebt", {
-        method: "POST",
-        body: JSON.stringify(body),
-      })
-      let data: any = {}
-      let text = ""
-      try {
-        text = await res.text()
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        // non-JSON body
-      }
-      if (!res.ok) {
-        const msg = data?.error || data?.message || text || `Failed to update debt (${res.status})`
-        throw new Error(msg)
-      }
-      const successMsg = data?.message || (approved ? "Debt approved" : "Debt rejected")
-      toast({ title: successMsg })
-      refresh()
-    } catch (e: any) {
-      toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
-    } finally {
-      setDebtUpdating(prev => ({ ...prev, [debtId]: false }))
-    }
-  }
-
-  async function handleUpdateAdjustedAmount(debtId: string) {
-    if (!token) {
-      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
-      return
-    }
-    setUpdatingAmounts(prev => ({ ...prev, [debtId]: true }))
-    try {
-      const amt = Number(updateAmounts[debtId])
-      if (!Number.isFinite(amt) || amt < 0) {
-        toast({ title: "Invalid amount", description: "Please enter a valid positive number", variant: "destructive" })
-        return
-      }
-      
-      const body = {
-        unique_user_id: uniqueId,
-        debtid: debtId,
-        approved: true, // Keep as approved
-        adjustedAmount: Math.floor(amt),
-      }
-      
-      const res = await authenticatedFetch("/api/updateuserdebt", {
-        method: "POST",
-        body: JSON.stringify(body),
-      })
-      
-      let data: any = {}
-      let text = ""
-      try {
-        text = await res.text()
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        // non-JSON body
-      }
-      
-      if (!res.ok) {
-        const msg = data?.error || data?.message || text || `Failed to update debt amount (${res.status})`
-        throw new Error(msg)
-      }
-      
-      const successMsg = data?.message || "Debt amount updated successfully"
-      toast({ title: successMsg })
-      setUpdateAmounts(prev => ({ ...prev, [debtId]: "" }))
-      refresh()
-    } catch (e: any) {
-      toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
-    } finally {
-      setUpdatingAmounts(prev => ({ ...prev, [debtId]: false }))
-    }
-  }
-
-  async function handleMarkAsPaid(debtId: string) {
-    if (!token) {
-      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
-      return
-    }
-    
-    if (!confirm("Are you sure you want to mark this debt as paid? This action cannot be undone.")) {
-      return
-    }
-    
-    setMarkingPaid(prev => ({ ...prev, [debtId]: true }))
-    try {
-      const body = {
-        unique_user_id: uniqueId,
-        debtid: debtId,
-        approved: true, // Keep as approved
-        adjustedAmount: 0, // Keep current amount
-        paid: true, // Mark as paid
-      }
-      
-      const res = await authenticatedFetch("/api/updateuserdebt", {
-        method: "POST",
-        body: JSON.stringify(body),
-      })
-      
-      let data: any = {}
-      let text = ""
-      try {
-        text = await res.text()
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        // non-JSON body
-      }
-      
-      if (!res.ok) {
-        const msg = data?.error || data?.message || text || `Failed to mark debt as paid (${res.status})`
-        throw new Error(msg)
-      }
-      
-      const successMsg = data?.message || "Debt marked as paid successfully"
-      toast({ title: successMsg })
-      refresh()
-    } catch (e: any) {
-      toast({ title: "Mark as paid failed", description: e?.message || String(e), variant: "destructive" })
-    } finally {
-      setMarkingPaid(prev => ({ ...prev, [debtId]: false }))
-    }
-  }
-
 
   // If not logged in, show a friendly prompt instead of raw errors
   if (!token) {
@@ -483,147 +474,8 @@ export default function UserProfilePage() {
             </Card>
           )}
 
-          {/* Debt Information */}
-          {profile.Debtresult && (
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-orange-600" />
-                <CardTitle className="text-orange-600">Debt Requests</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Adjusted Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Paid</TableHead>
-                        <TableHead>Request Date</TableHead>
-                        <TableHead>Description</TableHead>
-                        {isAdmin && <TableHead>Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {/* Handle both array and single object cases */}
-                      {(Array.isArray(profile.Debtresult) ? profile.Debtresult : [profile.Debtresult]).map((debt, index) => (
-                        <TableRow key={debt._id || index}>
-                          <TableCell className="font-medium">
-                            ₹{debt.amount || "0"}
-                          </TableCell>
-                          <TableCell>
-                            ₹{debt.adjustedAmount || "0"}
-                          </TableCell>
-                          <TableCell>
-                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${
-                              debt.status === 'approved' 
-                                ? 'bg-green-100 text-green-800' 
-                                : debt.status === 'rejected'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {debt.status === 'approved' ? (
-                                <>
-                                  <CheckCircle className="h-3 w-3" />
-                                  Approved
-                                </>
-                              ) : debt.status === 'rejected' ? (
-                                <>
-                                  <XCircle className="h-3 w-3" />
-                                  Rejected
-                                </>
-                              ) : (
-                                <>
-                                  <Clock className="h-3 w-3" />
-                                  Pending
-                                </>
-                              )}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className={`text-xs px-2 py-1 rounded ${
-                              debt.paid
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {debt.paid ? 'Yes' : 'No'}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {debt.createdAt ? new Date(debt.createdAt).toLocaleDateString() : "-"}
-                          </TableCell>
-                          <TableCell className="max-w-[200px] truncate">
-                            {debt.description || "-"}
-                          </TableCell>
-                          {isAdmin && (
-                            <TableCell>
-                              {!debt.paid ? (
-                                <div className="flex flex-col gap-2">
-                                  {/* Show Approve/Reject buttons only if not paid */}
-                                  <div className="flex gap-1">
-                                    <Button 
-                                      size="sm" 
-                                      disabled={debtUpdating[debt._id] || false} 
-                                      onClick={() => handleDebtUpdate(debt._id, true, debt.status || 'pending')}
-                                    >
-                                      Approve
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="destructive" 
-                                      disabled={debtUpdating[debt._id] || false} 
-                                      onClick={() => handleDebtUpdate(debt._id, false, debt.status || 'pending')}
-                                    >
-                                      Reject
-                                    </Button>
-                                  </div>
-                                  
-                                  {/* Show update section for approved debts */}
-                                  {debt.status === 'approved' && (
-                                    <div className="flex flex-col gap-2">
-                                      <div className="flex items-center gap-2">
-                                        <Input
-                                          type="number"
-                                          min="0"
-                                          placeholder="Amount"
-                                          value={updateAmounts[debt._id] || ""}
-                                          onChange={(e) => setUpdateAmounts(prev => ({ ...prev, [debt._id]: e.target.value }))}
-                                          className="w-24"
-                                        />
-                                        <Button 
-                                          disabled={updatingAmounts[debt._id] || false} 
-                                          onClick={() => handleUpdateAdjustedAmount(debt._id)}
-                                          size="sm"
-                                        >
-                                          {updatingAmounts[debt._id] ? "..." : "Update"}
-                                        </Button>
-                                      </div>
-                                      
-                                      {/* Show Mark as Paid button for approved debts */}
-                                      <Button 
-                                        size="sm" 
-                                        variant="outline"
-                                        disabled={markingPaid[debt._id] || false} 
-                                        onClick={() => handleMarkAsPaid(debt._id)}
-                                      >
-                                        {markingPaid[debt._id] ? "..." : "Mark as Paid"}
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">Paid</span>
-                              )}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Debt Requests Component */}
+          <DebtRequests profile={profile} token={token} uniqueId={uniqueId} refresh={refresh} />
 
           {/* Account Details */}
           {profile.Userresult && (
@@ -660,168 +512,3 @@ export default function UserProfilePage() {
     </div>
   )
 }
-
-async function downloadAadhaar(adharpath: string, watermark: string) {
-  try {
-    const response = await authenticatedFetch(`/api/aadhaar/${encodeURI(adharpath)}`)
-    if (!response.ok) throw new Error('Failed to fetch Aadhaar document')
-    
-    const blob = await response.blob()
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    
-    // Determine file extension based on content type
-    const contentType = response.headers.get('content-type') || ''
-    const extension = contentType.includes('pdf') ? 'pdf' : 'jpg'
-    
-    link.download = `aadhaar_${watermark}_${Date.now()}.${extension}`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
-  } catch (error) {
-    console.error('Error downloading Aadhaar:', error)
-    alert('Failed to download Aadhaar document')
-  }
-}
-
-function AadhaarViewer({ adharpath, watermark }: { adharpath: string; watermark: string }) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    let aborted = false
-    
-    async function loadAadhaar() {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        console.log('Loading Aadhaar:', adharpath)
-        const response = await authenticatedFetch(`/api/aadhaar/${encodeURI(adharpath)}`)
-        console.log('Aadhaar response:', response.status, response.headers.get('content-type'))
-        
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error('Aadhaar fetch error:', errorText)
-          throw new Error(`Failed to fetch Aadhaar file: ${response.status}`)
-        }
-        
-        const contentType = response.headers.get("content-type") || ""
-        const blob = await response.blob()
-        console.log('Aadhaar blob size:', blob.size, 'type:', contentType)
-        
-        if (aborted) return
-        
-        // Create blob URL for both PDFs and images
-        const blobUrl = URL.createObjectURL(blob)
-        console.log('Created blob URL:', blobUrl)
-        setImageUrl(blobUrl)
-      } catch (e: any) {
-        console.error('Aadhaar loading error:', e)
-        if (!aborted) {
-          setError(e.message || "Failed to load Aadhaar document")
-        }
-      } finally {
-        if (!aborted) {
-          setLoading(false)
-        }
-      }
-    }
-    
-    loadAadhaar()
-    
-    return () => {
-      aborted = true
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl)
-      }
-    }
-  }, [adharpath])
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    
-    const block = (e: Event) => e.preventDefault()
-    el.addEventListener("contextmenu", block)
-    el.addEventListener("dragstart", block)
-    
-    return () => {
-      el.removeEventListener("contextmenu", block)
-      el.removeEventListener("dragstart", block)
-    }
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="grid gap-2 select-none">
-        <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
-        <div className="rounded-md border p-8 bg-muted/20 flex items-center justify-center">
-          <Spinner className="h-6 w-6" />
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="grid gap-2 select-none">
-        <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
-        <div className="rounded-md border p-4 bg-muted/20">
-          <p className="text-sm text-destructive">Error: {error}</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div ref={containerRef} className="grid gap-2 select-none">
-      <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
-      <div className="rounded-md border p-2 bg-muted/20">
-        {imageUrl && (
-          <div className="space-y-2">
-            {/* Try to display as image first */}
-            <img
-              src={imageUrl}
-              alt="Aadhaar Document"
-              className="w-full h-auto rounded-md object-contain"
-              style={{ 
-                filter: 'blur(0.5px)',
-                maxHeight: '800px',
-                minHeight: '400px'
-              }}
-              onError={(e) => {
-                // If image fails to load, try as PDF in iframe
-                const target = e.target as HTMLImageElement
-                const parent = target.parentElement
-                if (parent) {
-                  parent.innerHTML = `
-                    <iframe
-                      src="${imageUrl}"
-                      className="w-full rounded-md"
-                      style="height: 600px; min-height: 400px;"
-                      title="Aadhaar Document"
-                    ></iframe>
-                  `
-                }
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Document ID: {watermark} | Viewing only. Download/print is disabled.
-            </p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-
-
-
-
-
