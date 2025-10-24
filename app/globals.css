@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
 
 :root {
   --background: #f5f7fb;
@@ -53,41 +52,6 @@
   --sidebar-ring: #4a67de;
 }
 
-.dark {
-  --background: #0b1020;
-  --foreground: #e9ecf2;
-  --card: #111a33;
-  --card-foreground: var(--foreground);
-  --popover: #111a33;
-  --popover-foreground: var(--foreground);
-  --primary: #6c8cff;
-  --primary-foreground: #ffffff;
-  --secondary: #111a33;
-  --secondary-foreground: var(--foreground);
-  --muted: #0f1730;
-  --muted-foreground: #a6b0c3;
-  --accent: #22d3ee;
-  --accent-foreground: #0b1020;
-  --destructive: #f43f5e;
-  --destructive-foreground: #ffffff;
-  --border: #24304d;
-  --input: #24304d;
-  --ring: #4a67de;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --radius: 0.625rem;
-  --sidebar: #0b1020;
-  --sidebar-foreground: #e9ecf2;
-  --sidebar-primary: #6c8cff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #22d3ee;
-  --sidebar-accent-foreground: #0b1020;
-  --sidebar-border: #24304d;
-  --sidebar-ring: #4a67de;
-}
 
 @theme inline {
   --font-sans: "Inter", "Geist", "Geist Fallback";
