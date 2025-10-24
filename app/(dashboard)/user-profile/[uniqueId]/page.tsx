@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { ArrowLeft, User, MapPin, CreditCard, FileText, AlertCircle, Download, Eye, ExternalLink, CheckCircle, XCircle, Clock, Shield, Mail, Phone, Calendar, Building, Globe, ChevronRight } from "lucide-react"
@@ -13,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "@/components/ui/use-toast"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import DebtRequests from "./debt-requests"
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -27,7 +27,7 @@ function AadhaarViewer({ adharpath, watermark }: { adharpath: string; watermark:
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let aborted = false
@@ -59,14 +59,18 @@ function AadhaarViewer({ adharpath, watermark }: { adharpath: string; watermark:
         setImageUrl(blobUrl)
         setLoading(false)
       } catch (e: any) {
-        console.error('Error loading Aadhaar:', e)
-        setError(e?.message || 'Failed to load Aadhaar document')
-        setLoading(false)
+        console.error('Aadhaar loading error:', e)
+        if (!aborted) {
+          setError(e.message || "Failed to load Aadhaar document")
+        }
+      } finally {
+        if (!aborted) {
+          setLoading(false)
+        }
       }
     }
-
+    
     loadAadhaar()
-
     return () => {
       aborted = true
       if (imageUrl) {
@@ -75,59 +79,80 @@ function AadhaarViewer({ adharpath, watermark }: { adharpath: string; watermark:
     }
   }, [adharpath])
 
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    
+    const block = (e: Event) => e.preventDefault()
+    el.addEventListener("contextmenu", block)
+    el.addEventListener("dragstart", block)
+    
+    return () => {
+      el.removeEventListener("contextmenu", block)
+      el.removeEventListener("dragstart", block)
+    }
+  }, [])
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <Spinner className="h-8 w-8" />
-        <span className="ml-2">Loading Aadhaar document...</span>
+      <div className="grid gap-2 select-none">
+        <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
+        <div className="rounded-md border p-8 bg-muted/20 flex items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center p-8 text-red-600">
-        <AlertCircle className="h-8 w-8 mr-2" />
-        <span>Error: {error}</span>
-      </div>
-    )
-  }
-
-  if (!imageUrl) {
-    return (
-      <div className="flex items-center justify-center p-8 text-gray-500">
-        <span>No document available</span>
+      <div className="grid gap-2 select-none">
+        <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
+        <div className="rounded-md border p-4 bg-muted/20">
+          <p className="text-sm text-destructive">Error: {error}</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div ref={containerRef} className="w-full">
-      <img
-        src={imageUrl}
-        alt="Aadhaar Document"
-        className="w-full h-auto rounded-md object-contain"
-        style={{
-          filter: 'blur(0.5px)',
-          maxHeight: '800px',
-          minHeight: '400px'
-        }}
-        onError={(e) => {
-          // If image fails to load, try as PDF in iframe
-          const target = e.target as HTMLImageElement
-          const parent = target.parentElement
-          if (parent) {
-            parent.innerHTML = `
-              <iframe
-                src="${imageUrl}"
-                className="w-full rounded-md"
-                style="height: 600px; min-height: 400px;"
-                title="Aadhaar Document"
-              ></iframe>
-            `
-          }
-        }}
-      />
+    <div ref={containerRef} className="grid gap-2 select-none">
+      <span className="text-sm text-muted-foreground font-medium">Aadhaar Document</span>
+      <div className="rounded-md border p-2 bg-muted/20">
+        {imageUrl && (
+          <div className="space-y-2">
+            {/* Try to display as image first */}
+            <img
+              src={imageUrl}
+              alt="Aadhaar Document"
+              className="w-full h-auto rounded-md object-contain"
+              style={{ 
+                filter: 'blur(0.5px)',
+                maxHeight: '800px',
+                minHeight: '400px'
+              }}
+              onError={(e) => {
+                // If image fails to load, try as PDF in iframe
+                const target = e.target as HTMLImageElement
+                const parent = target.parentElement
+                if (parent) {
+                  parent.innerHTML = `
+                    <iframe
+                      src="${imageUrl}"
+                      className="w-full rounded-md"
+                      style="height: 600px; min-height: 400px;"
+                      title="Aadhaar Document"
+                    ></iframe>
+                  `
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Document ID: {watermark} | Viewing only. Download/print is disabled.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -165,172 +190,6 @@ export default function UserProfilePage() {
   const isAdmin = !!token
   
   const { profile, isLoading, error, refresh } = useUserProfile(uniqueId)
-  const [debtUpdating, setDebtUpdating] = useState<{ [key: string]: boolean }>({})
-  const [updateAmounts, setUpdateAmounts] = useState<{ [key: string]: string }>({})
-  const [updatingAmounts, setUpdatingAmounts] = useState<{ [key: string]: boolean }>({})
-  const [markingPaid, setMarkingPaid] = useState<{ [key: string]: boolean }>({})
-
-  async function handleDebtUpdate(debtId: string, approved: boolean, currentStatus: string) {
-    if (!token) {
-      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
-      return
-    }
-
-    // Handle status change confirmations and alerts
-    if (approved && currentStatus === 'approved') {
-      alert("This request is already approved. You can reject it if you want to change the status.")
-      return
-    }
-    
-    if (!approved && currentStatus === 'rejected') {
-      alert("This request is already rejected. You can approve it if you want to change the status.")
-      return
-    }
-
-    if (approved && currentStatus === 'rejected') {
-      if (!confirm("Are you sure you want to approve this previously rejected request?")) {
-        return
-      }
-    }
-
-    if (!approved && currentStatus === 'approved') {
-      if (!confirm("Are you sure you want to reject this approved request?")) {
-        return
-      }
-    }
-
-    setDebtUpdating(prev => ({ ...prev, [debtId]: true }))
-    try {
-      const body = {
-        unique_user_id: uniqueId,
-        debtid: debtId,
-        approved,
-        adjustedAmount: approved ? 0 : undefined,
-      }
-      const res = await authenticatedFetch("/api/updateuserdebt", {
-        method: "POST",
-        body: JSON.stringify(body),
-      })
-      let data: any = {}
-      let text = ""
-      try {
-        text = await res.text()
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        // non-JSON body
-      }
-      if (!res.ok) {
-        const msg = data?.error || data?.message || text || `Failed to update debt (${res.status})`
-        throw new Error(msg)
-      }
-      const successMsg = data?.message || (approved ? "Debt approved" : "Debt rejected")
-      toast({ title: successMsg })
-      refresh()
-    } catch (e: any) {
-      toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
-    } finally {
-      setDebtUpdating(prev => ({ ...prev, [debtId]: false }))
-    }
-  }
-
-  async function handleUpdateAdjustedAmount(debtId: string) {
-    if (!token) {
-      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
-      return
-    }
-    setUpdatingAmounts(prev => ({ ...prev, [debtId]: true }))
-    try {
-      const amt = Number(updateAmounts[debtId])
-      if (!Number.isFinite(amt) || amt < 0) {
-        toast({ title: "Invalid amount", description: "Please enter a valid positive number", variant: "destructive" })
-        return
-      }
-      
-      const body = {
-        unique_user_id: uniqueId,
-        debtid: debtId,
-        approved: true, // Keep as approved
-        adjustedAmount: Math.floor(amt),
-      }
-      
-      const res = await authenticatedFetch("/api/updateuserdebt", {
-        method: "POST",
-        body: JSON.stringify(body),
-      })
-      
-      let data: any = {}
-      let text = ""
-      try {
-        text = await res.text()
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        // non-JSON body
-      }
-      
-      if (!res.ok) {
-        const msg = data?.error || data?.message || text || `Failed to update debt amount (${res.status})`
-        throw new Error(msg)
-      }
-      
-      const successMsg = data?.message || "Debt amount updated successfully"
-      toast({ title: successMsg })
-      setUpdateAmounts(prev => ({ ...prev, [debtId]: "" }))
-      refresh()
-    } catch (e: any) {
-      toast({ title: "Update failed", description: e?.message || String(e), variant: "destructive" })
-    } finally {
-      setUpdatingAmounts(prev => ({ ...prev, [debtId]: false }))
-    }
-  }
-
-  async function handleMarkAsPaid(debtId: string) {
-    if (!token) {
-      toast({ title: "Not allowed", description: "Admin authorization required", variant: "destructive" })
-      return
-    }
-    
-    if (!confirm("Are you sure you want to mark this debt as paid? This action cannot be undone.")) {
-      return
-    }
-    
-    setMarkingPaid(prev => ({ ...prev, [debtId]: true }))
-    try {
-      const body = {
-        unique_user_id: uniqueId,
-        debtid: debtId,
-        approved: true, // Keep as approved
-        adjustedAmount: 0, // Keep current amount
-        paid: true, // Mark as paid
-      }
-      
-      const res = await authenticatedFetch("/api/updateuserdebt", {
-        method: "POST",
-        body: JSON.stringify(body),
-      })
-      
-      let data: any = {}
-      let text = ""
-      try {
-        text = await res.text()
-        data = text ? JSON.parse(text) : {}
-      } catch {
-        // non-JSON body
-      }
-      
-      if (!res.ok) {
-        const msg = data?.error || data?.message || text || `Failed to mark debt as paid (${res.status})`
-        throw new Error(msg)
-      }
-      
-      const successMsg = data?.message || "Debt marked as paid successfully"
-      toast({ title: successMsg })
-      refresh()
-    } catch (e: any) {
-      toast({ title: "Mark as paid failed", description: e?.message || String(e), variant: "destructive" })
-    } finally {
-      setMarkingPaid(prev => ({ ...prev, [debtId]: false }))
-    }
-  }
 
   // If not logged in, show a friendly prompt instead of raw errors
   if (!token) {
@@ -716,157 +575,8 @@ export default function UserProfilePage() {
             </div>
           </div>
 
-          {/* Debt Information - Full Width */}
-          {profile?.Debtresult && (
-            <div className="mt-8">
-              <div className="backdrop-blur-sm bg-white/70 border border-white/20 rounded-2xl p-6 shadow-xl animate-fade-up hover:shadow-2xl transition-all duration-300">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 text-white">
-                    <AlertCircle className="h-5 w-5" />
-                  </div>
-                  <h3 className="text-xl font-semibold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
-                    Debt Requests
-                  </h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <Table className="bg-white/50 rounded-lg">
-                    <TableHeader>
-                      <TableRow className="border-white/30">
-                        <TableHead className="text-gray-700 font-semibold">Amount</TableHead>
-                        <TableHead className="text-gray-700 font-semibold">Adjusted Amount</TableHead>
-                        <TableHead className="text-gray-700 font-semibold">Status</TableHead>
-                        <TableHead className="text-gray-700 font-semibold">Paid</TableHead>
-                        <TableHead className="text-gray-700 font-semibold">Request Date</TableHead>
-                        <TableHead className="text-gray-700 font-semibold">Description</TableHead>
-                        {isAdmin && <TableHead className="text-gray-700 font-semibold">Actions</TableHead>}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {/* Handle both array and single object cases */}
-                      {(Array.isArray(profile.Debtresult) ? profile.Debtresult : [profile.Debtresult]).map((debt, index) => (
-                        <TableRow key={debt._id || index} className="border-white/30 hover:bg-white/30 transition-colors">
-                          <TableCell className="font-semibold text-gray-900">
-                            ₹{debt.amount || "0"}
-                          </TableCell>
-                          <TableCell className="font-semibold text-gray-900">
-                            ₹{debt.adjustedAmount || "0"}
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={`inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full ${
-                              debt.status === 'approved' 
-                                ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200' 
-                                : debt.status === 'rejected'
-                                ? 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200'
-                                : 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200'
-                            } transition-colors`}>
-                              {debt.status === 'approved' ? (
-                                <>
-                                  <CheckCircle className="h-3 w-3" />
-                                  Approved
-                                </>
-                              ) : debt.status === 'rejected' ? (
-                                <>
-                                  <XCircle className="h-3 w-3" />
-                                  Rejected
-                                </>
-                              ) : (
-                                <>
-                                  <Clock className="h-3 w-3" />
-                                  Pending
-                                </>
-                              )}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={`text-xs px-3 py-1 rounded-full ${
-                              debt.paid
-                                ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200' 
-                                : 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200'
-                            } transition-colors`}>
-                              {debt.paid ? 'Yes' : 'No'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-gray-600">
-                            {debt.createdAt ? new Date(debt.createdAt).toLocaleDateString() : "-"}
-                          </TableCell>
-                          <TableCell className="max-w-[200px] truncate text-gray-600">
-                            {debt.description || "-"}
-                          </TableCell>
-                          {isAdmin && (
-                            <TableCell>
-                              {!debt.paid ? (
-                                <div className="flex flex-col gap-2">
-                                  {/* Show Approve/Reject buttons only if not paid */}
-                                  <div className="flex gap-1">
-                                    <Button 
-                                      size="sm" 
-                                      disabled={debtUpdating[debt._id] || false} 
-                                      onClick={() => handleDebtUpdate(debt._id, true, debt.status || 'pending')}
-                                      className="bg-green-500 hover:bg-green-600 text-white border-0 shadow-md hover:shadow-lg transition-all duration-300"
-                                    >
-                                      Approve
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="destructive" 
-                                      disabled={debtUpdating[debt._id] || false} 
-                                      onClick={() => handleDebtUpdate(debt._id, false, debt.status || 'pending')}
-                                      className="bg-red-500 hover:bg-red-600 text-white border-0 shadow-md hover:shadow-lg transition-all duration-300"
-                                    >
-                                      Reject
-                                    </Button>
-                                  </div>
-                                  
-                                  {/* Show update section for approved debts */}
-                                  {debt.status === 'approved' && (
-                                    <div className="flex flex-col gap-2">
-                                      <div className="flex items-center gap-2">
-                                        <Input
-                                          type="number"
-                                          min="0"
-                                          placeholder="Amount"
-                                          value={updateAmounts[debt._id] || ""}
-                                          onChange={(e) => setUpdateAmounts(prev => ({ ...prev, [debt._id]: e.target.value }))}
-                                          className="w-24 bg-white/50 border-white/30 focus:bg-white/70 transition-all duration-300"
-                                        />
-                                        <Button 
-                                          disabled={updatingAmounts[debt._id] || false} 
-                                          onClick={() => handleUpdateAdjustedAmount(debt._id)}
-                                          size="sm"
-                                          className="bg-blue-500 hover:bg-blue-600 text-white border-0 shadow-md hover:shadow-lg transition-all duration-300"
-                                        >
-                                          {updatingAmounts[debt._id] ? "..." : "Update"}
-                                        </Button>
-                                      </div>
-                                      
-                                      {/* Show Mark as Paid button for approved debts */}
-                                      <Button 
-                                        size="sm" 
-                                        variant="outline"
-                                        disabled={markingPaid[debt._id] || false} 
-                                        onClick={() => handleMarkAsPaid(debt._id)}
-                                        className="bg-emerald-500 hover:bg-emerald-600 text-white border-0 shadow-md hover:shadow-lg transition-all duration-300"
-                                      >
-                                        {markingPaid[debt._id] ? "..." : "Mark as Paid"}
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <Badge className="bg-green-100 text-green-800 border-green-200">
-                                  Paid
-                                </Badge>
-                              )}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Debt Requests Component */}
+          <DebtRequests profile={profile} token={token} uniqueId={uniqueId} refresh={refresh} />
 
           {/* Account Details */}
           {profile?.Userresult && (
@@ -897,9 +607,9 @@ export default function UserProfilePage() {
                 )}
                 </div>
               </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
       </div>
     </div>
   )
